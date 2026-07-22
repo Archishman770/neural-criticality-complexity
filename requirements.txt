@@ -1,0 +1,19 @@
+# Python dependencies for the criticality-complexity analysis pipeline.
+# Versions pinned to those used for the reported analyses.
+# Developed on Homebrew-managed Python 3 (macOS, Apple Silicon).
+#
+# Install:  pip install -r requirements.txt
+# (On Homebrew Python you may need:  pip install --break-system-packages -r requirements.txt)
+
+h5py==3.16.0
+matplotlib==3.11.0
+mrestimator==0.2.0
+numpy==2.4.6
+pandas==3.0.3
+pymatreader==1.2.3
+scipy==1.18.0
+statsmodels==0.14.6
+
+# NOT required (implemented inline in the scripts, or unused):
+#   - antropy : LZ76 is implemented directly in step2_batch_extract.py
+#   - mne     : EEG is read via pymatreader + the EEGLAB .set format, not MNE

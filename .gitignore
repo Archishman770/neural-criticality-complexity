@@ -1,0 +1,12 @@
+# data / large / licensed
+Sedation-RestingState/
+allen_cache/
+files/
+files 2/
+*.csv
+*.docx
+*.pdf
+*.png
+.DS_Store
+__pycache__/
+*.pyc

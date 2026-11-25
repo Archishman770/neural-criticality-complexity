@@ -1,6 +1,6 @@
 """Build the submission .docx from docs/entropy/manuscript.md (python-docx).
 
-Markdown subset: header fields (TITLE/AUTHOR/AFFILIATION/CORRESPONDENCE/ABSTRACT/KEYWORDS),
+Markdown subset: header fields (TITLE/AUTHOR/AFFILIATION/CORRESPONDENCE/ABSTRACT/LEAD/KEYWORDS),
 '# ' / '## ' headings, '- ' and '  - ' bullets, pipe tables, 'FIGURE: path | caption',
 'BACKMATTER:', 'REFERENCES' followed by 'key | formatted reference' lines, inline **bold**,
 *italic*, and citations [@a; @b]. Citations are numbered in order of first appearance.
@@ -38,7 +38,7 @@ def parse(path: str) -> tuple[dict, list[str], dict]:
                 k, v = ln.split("|", 1)
                 refs[k.strip()] = v.strip()
             continue
-        m = re.match(r"^(TITLE|AUTHOR|AFFILIATION|CORRESPONDENCE|ABSTRACT|KEYWORDS):\s*(.*)$", ln)
+        m = re.match(r"^(TITLE|AUTHOR|AFFILIATION|CORRESPONDENCE|ABSTRACT|LEAD|KEYWORDS):\s*(.*)$", ln)
         in_header = not any(b.startswith("# ") for b in body)
         if m and in_header:
             head[m.group(1)] = m.group(2)
@@ -105,7 +105,7 @@ def line_numbers(doc: Document) -> None:
 
 def main() -> None:
     head, body, refs = parse(SRC)
-    order = number_citations([head.get("ABSTRACT", "")] + body)
+    order = number_citations([head.get("ABSTRACT", ""), head.get("LEAD", "")] + body)
     missing = [k for k in order if k not in refs]
     unused = [k for k in refs if k not in order]
     if missing or unused:
@@ -115,7 +115,7 @@ def main() -> None:
     def cite(t: str) -> str:
         return CITE.sub(lambda m: fmt_nums([num[k] for k in re.findall(r"@([\w]+)", m.group(1))]), t)
 
-    print(f"abstract words: {len(head['ABSTRACT'].split())} (Entropy: about 200 maximum)")
+    print(f"abstract words: {len(head['ABSTRACT'].split())}")
 
     doc = Document()
     st = doc.styles["Normal"]
@@ -137,6 +137,9 @@ def main() -> None:
         p.alignment = WD_ALIGN_PARAGRAPH.CENTER
         add_runs(p, head[key])
     add_runs(doc.add_paragraph(), "**Abstract:** " + cite(head["ABSTRACT"]))
+    if "LEAD" in head:
+        print(f"lead paragraph words: {len(head['LEAD'].split())}")
+        add_runs(doc.add_paragraph(), "**" + cite(head["LEAD"]) + "**")
     add_runs(doc.add_paragraph(), "**Keywords:** " + head["KEYWORDS"])
 
     i = 0

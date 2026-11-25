@@ -23,26 +23,36 @@ def save(fig, name):
     print(f"wrote {name}.png / .pdf")
 
 
+FIG1_DT = 8   # fixed bin width (samples) shown in Fig. 1: middle of the 5..11 sweep (A8)
+
+
 def fig1():
-    bran = pd.read_csv(f"{PROJ}/branching_summary_v2.csv")
+    """Complexity vs m: fixed-dt m (primary, A8) with data-driven m as grey reference."""
     comp = pd.read_csv(f"{PROJ}/complexity_summary.csv")
-    bran = bran[bran.mr_ok == True].copy()
-    cmean = comp.groupby(["subject", "condition"])[["lz", "mpr_c"]].mean().reset_index()
-    df = bran.merge(cmean, on=["subject", "condition"], how="inner")
+    cmean = comp.groupby(["subject", "level"])[["lz", "mpr_c"]].mean().reset_index()
+    dd = pd.read_csv(f"{PROJ}/branching_summary_v2.csv")
+    dd = dd[dd.mr_ok == True].merge(cmean, on=["subject", "level"])  # noqa: E712
+    fx = pd.read_csv(f"{PROJ}/branching_summary_fixeddt.csv")
+    fx = fx[(fx.dt_fixed == FIG1_DT) & (fx.mr_ok == True)].merge(cmean, on=["subject", "level"])  # noqa: E712
     fig, axes = plt.subplots(1, 2, figsize=(6.5, 2.9))
     for ax, col, lab, colr in ((axes[0], "mpr_c", "MPR$_C$ (statistical complexity)", C["blue"]),
                                (axes[1], "lz", "LZ (algorithmic complexity)", C["orange"])):
-        ax.scatter(df.m_MR, df[col], s=14, c=colr, alpha=0.55, edgecolors="none")
-        z = np.polyfit(df.m_MR, df[col], 1)
-        xs = np.linspace(df.m_MR.min(), df.m_MR.max(), 50)
+        ax.scatter(dd.m_MR, dd[col], s=12, facecolors="none", edgecolors=C["grey"], lw=0.5,
+                   alpha=0.7, label="data-driven $\\Delta t$ (pre-registered)")
+        ax.scatter(fx.m_MR, fx[col], s=14, c=colr, alpha=0.7, edgecolors="none",
+                   label=f"fixed $\\Delta t$ = {FIG1_DT} samples ({4 * FIG1_DT} ms)")
+        z = np.polyfit(fx.m_MR, fx[col], 1)
+        xs = np.linspace(fx.m_MR.min(), fx.m_MR.max(), 50)
         ax.plot(xs, np.polyval(z, xs), color=C["black"], lw=1.2, ls="--")
         ax.axvline(1.0, color=C["grey"], lw=0.8, ls=":")
         ax.set_xlabel("Branching ratio $m$")
         ax.set_ylabel(lab)
-        ax.set_xlim(0.75, 1.02)
+        ax.set_xlim(0.70, 1.02)
+    h, l = axes[0].get_legend_handles_labels()
+    fig.legend(h, l, loc="lower center", ncol=2, fontsize=7, bbox_to_anchor=(0.5, -0.06))
     axes[0].text(-0.18, 1.02, "A", transform=axes[0].transAxes, fontsize=13, fontweight="bold")
     axes[1].text(-0.18, 1.02, "B", transform=axes[1].transAxes, fontsize=13, fontweight="bold")
-    fig.suptitle("Complexity rises as $m$ approaches criticality (rising limb only), propofol EEG",
+    fig.suptitle("Complexity against branching ratio, propofol EEG (rising limb only)",
                  fontsize=9.5, y=1.02)
     fig.tight_layout()
     save(fig, "Figure1_rising_limb")

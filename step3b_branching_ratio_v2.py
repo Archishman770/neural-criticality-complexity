@@ -17,7 +17,6 @@ DT_BOUNDS   = (1, 12)
 NEG_ONLY    = False
 LEVELS      = {1: "baseline", 2: "mild", 3: "moderate", 4: "recovery"}
 
-
 def norm(name):
     return name.replace(" ", "_").replace(".", "_")
 

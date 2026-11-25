@@ -14,6 +14,59 @@ QUALITY_GATE_FRAC = 0.15
 SEED = 20260715
 
 
+FIXED_DT_RESULTS = "fixed_dt_test_results.csv"   # written by step20_fixed_dt_test.py
+
+
+def score_fixed_dt(data_dir: str) -> tuple[pd.DataFrame, dict] | None:
+    """Score criteria 1-3 under fixed binning (amendment A8), from step20's output.
+
+    Under data-driven binning (step3b), dt ~ 1/event-rate enters both the complexity
+    and criticality sides of the model. step20 re-estimates m at each fixed dt in
+    5..11 samples and fits the same models, with 10,000 within-subject permutations
+    per dt. This function only scores those results; it does not refit.
+
+    Verdict rule (fixed before scoring, logged in docs/decision_log.md): a criterion
+    PASSES only if it passes at every fixed dt, FAILS if it fails at every fixed dt,
+    and is MIXED otherwise.
+
+    Args:
+        data_dir: folder holding fixed_dt_test_results.csv.
+
+    Returns:
+        (per-dt table, {criterion: verdict}) or None if step20 has not been run.
+    """
+    path = os.path.join(data_dir, FIXED_DT_RESULTS)
+    if not os.path.exists(path):
+        return None
+    r = pd.read_csv(path)
+    r = r[r.scheme.str.startswith("B.")].copy()
+    r["dt"] = r.scheme.str.extract(r"dt = (\d+)", expand=False).astype(int)
+    mp = r[r.measure == "mpr_c"].set_index("dt")
+    lz = r[r.measure == "lz"].set_index("dt")
+    t = pd.DataFrame({
+        "mpr_beta": mp.beta, "mpr_p": mp.p, "mpr_p_perm": mp.p_perm,
+        "mpr_beta_var": mp.beta_var, "mpr_p_var": mp.p_var,
+        "mpr_atten_pct": mp.attenuation_pct,
+        "lz_beta": lz.beta, "lz_p": lz.p, "lz_p_var": lz.p_var,
+        "lz_atten_pct": lz.attenuation_pct,
+        "mpr_within_r": mp.perm_r, "lz_within_r": lz.perm_r,
+    })
+    t["crit1_pass"] = (t.mpr_beta < 0) & (t.mpr_p < ALPHA) & (t.mpr_p_perm < ALPHA)
+    t["crit2_pass"] = t.mpr_p_var < ALPHA
+    # "Equally strong or stronger", judged on the scale-free within-subject |r|, with
+    # the 20% comparability band used in step13. Raw |beta| is NOT used here: LZ's SD
+    # is ~3.5x MPR_C's, so a raw comparison always favours LZ (manuscript s2.5).
+    t["crit3_lz_stronger"] = t.lz_within_r >= 0.8 * t.mpr_within_r
+
+    def verdict(col: pd.Series, yes: str, no: str) -> str:
+        return yes if col.all() else (no if not col.any() else "MIXED")
+
+    v = dict(crit1=verdict(t.crit1_pass, "PASS", "FAIL"),
+             crit2=verdict(t.crit2_pass, "PASS", "FAIL"),
+             crit3=verdict(t.crit3_lz_stronger, "LIMITATION", "as hypothesized"))
+    return t, v
+
+
 def load() -> tuple[pd.DataFrame, pd.DataFrame]:
     comp = pd.read_csv(os.path.join(DATA_DIR, "complexity_summary.csv"))
     var = pd.read_csv(os.path.join(DATA_DIR, "variance_summary.csv"))
@@ -125,8 +178,29 @@ def main() -> None:
     reasons = br_all.loc[br_all["mr_ok"] != True, "reason"].value_counts()
 
 
+    fixed = score_fixed_dt(DATA_DIR)
+    if fixed is None:
+        raise SystemExit(f"{FIXED_DT_RESULTS} not found in {DATA_DIR}. Run "
+                         "step19_fixed_dt_branching.py then step20_fixed_dt_test.py first: "
+                         "the binning-controlled arm (amendment A8) must be scored alongside "
+                         "the pre-registered arm, never omitted.")
+    fx, fxv = fixed
+    print("=== BINNING-CONTROLLED ARM (amendment A8: fixed dt = 5..11 samples) ===")
+    print(fx[["mpr_beta", "mpr_p", "mpr_p_perm", "mpr_p_var", "mpr_atten_pct",
+              "lz_p", "lz_p_var", "lz_atten_pct"]].round(4).to_string())
+    print(f"   Criterion 1: {fxv['crit1']}  ({int(fx.crit1_pass.sum())}/{len(fx)} dt)")
+    print(f"   Criterion 2: {fxv['crit2']}  ({int(fx.crit2_pass.sum())}/{len(fx)} dt)")
+    print(f"   Criterion 3: {fxv['crit3']}  ({int(fx.crit3_lz_stronger.sum())}/{len(fx)} dt)\n")
+    results["fixed_dt"] = fxv
+
     h1_supported = crit1_pass and crit2_pass and crit5_pass and pp_mpr < ALPHA
+    h1_supported_fixed = fxv["crit1"] == "PASS" and fxv["crit2"] == "PASS" and crit5_pass
     print("=== VERDICT (propofol arm) ===")
+    print("   Binning-controlled spec (A8) -- the defensible one, reported first:")
+    print(f"     Criterion 1: {fxv['crit1']}   Criterion 2: {fxv['crit2']}   "
+          f"Criterion 3: {fxv['crit3']}")
+    print(f"     -> {'meets' if h1_supported_fixed else 'DOES NOT meet'} criteria 1-2,5")
+    print("   Pre-registered spec (data-driven dt, confounded by event rate):")
     print(f"   Criterion 1 (primary):        {'PASS' if crit1_pass else 'FAIL'}")
     print(f"   Criterion 2 (variance):       {'PASS' if crit2_pass else 'FAIL'}")
     print(f"   Criterion 3 (LZ contrast):    {'LIMITATION' if lz_stronger else 'as hypothesized'}")
@@ -151,6 +225,30 @@ def main() -> None:
         f"m_MR range {df.m_MR.min():.3f}–{df.m_MR.max():.3f}.",
         "",
         "## 1. Pass/fail per criterion",
+        "",
+        "### 1a. Binning-controlled specification (amendment A8) -- reported first",
+        "",
+        "The pre-registered pipeline bins at the data-driven mean inter-event interval, so",
+        "dt ~ 1/event-rate sits on both sides of the model (LZ vs events_per_epoch r = +0.94).",
+        "Holding dt fixed (step19/step20) removes that path. Verdict rule: PASS only if the",
+        "criterion passes at every fixed dt, FAIL if it fails at every dt, else MIXED.",
+        "",
+        "| dt | MPR_C beta | p | p_perm | p (+variance) | attenuation | LZ p (+variance) |",
+        "|---|---|---|---|---|---|---|",
+    ]
+    for dt, row in fx.iterrows():
+        rep.append(f"| {dt} | {row.mpr_beta:+.4f} | {row.mpr_p:.4f} | {row.mpr_p_perm:.4f} | "
+                   f"{row.mpr_p_var:.3f} | {row.mpr_atten_pct:.0f}% | {row.lz_p_var:.3f} |")
+    rep += [
+        "",
+        f"- Criterion 1 (primary): **{fxv['crit1']}** "
+        f"({int(fx.crit1_pass.sum())}/{len(fx)} dt)",
+        f"- Criterion 2 (variance confound): **{fxv['crit2']}** "
+        f"({int(fx.crit2_pass.sum())}/{len(fx)} dt)",
+        f"- Criterion 3 (LZ contrast): **{fxv['crit3']}** "
+        f"({int(fx.crit3_lz_stronger.sum())}/{len(fx)} dt)",
+        "",
+        "### 1b. Pre-registered specification (data-driven dt)",
         "",
         "| Criterion | Test | Result | Verdict |",
         "|---|---|---|---|",
@@ -211,6 +309,10 @@ def main() -> None:
         criterion5_ok_frac=ok_frac, criterion5_pass=crit5_pass,
         perm_p_mpr=pp_mpr, perm_p_lz=pp_lz, n_cells=n_cells, n_subjects=n_subj,
         n_shuffles=N_SHUFFLES,
+        fixed_dt_crit1=fxv["crit1"], fixed_dt_crit2=fxv["crit2"],
+        fixed_dt_crit3=fxv["crit3"],
+        fixed_dt_crit2_max_p=float(fx.mpr_p_var.max()),
+        fixed_dt_crit2_min_p=float(fx.mpr_p_var.min()),
     )]).to_csv(os.path.join(DATA_DIR, "step12_falsification_results.csv"), index=False)
 
     print(f"\nReport -> {out_md}")

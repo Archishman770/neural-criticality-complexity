@@ -10,8 +10,11 @@ import pandas as pd
 
 
 DATA_DIR: str = sys.argv[1] if len(sys.argv) > 1 else "."
-THRESHOLD: int = 20
+# Primary rule is <= 20 (locked pre-inspection); pass 21 for the sensitivity variant.
+THRESHOLD: int = int(sys.argv[2]) if len(sys.argv) > 2 else 20
 THRESHOLD_ALT: int = 21
+FIXED_DT_FILE: str = "branching_summary_fixeddt.csv"   # from step19 (amendment A8)
+SEED_FIXED_DT: int = 20260927   # separate RNG stream so the original A4 numbers reproduce
 N_PERM: int = 10_000
 SEED: int = 20260704
 MODERATE_LEVEL: int = 3
@@ -101,6 +104,40 @@ def cov_adjusted(df: pd.DataFrame, measure: str, rng: np.random.Generator) -> di
 
 
 
+def fixed_dt_m(data_dir: str, df: pd.DataFrame) -> pd.DataFrame | None:
+    """Re-test the m_MR side of the split with fixed-dt branching ratios (amendment A8).
+
+    The original m_MR uses step3b's data-driven bin width (dt ~ 1/event-rate), which
+    A8 showed is confounded with the complexity measures. Here m is taken from
+    step19 at each fixed dt = 5..11 samples and put through the same group permutation
+    and concentration-adjusted permutation (10,000 shuffles each), on a separate RNG
+    stream so the original results are unchanged.
+
+    Args:
+        data_dir: folder holding branching_summary_fixeddt.csv.
+        df: per-subject moderate-condition table from build_table (responsive, conc).
+
+    Returns:
+        One row per dt, or None if step19 output is absent.
+    """
+    path = os.path.join(data_dir, FIXED_DT_FILE)
+    if not os.path.exists(path):
+        return None
+    fx = pd.read_csv(path)
+    fx = fx[(fx["level"] == MODERATE_LEVEL) & (fx["mr_ok"] == True)]  # noqa: E712
+    rng = np.random.default_rng(SEED_FIXED_DT)
+    rows = []
+    for dt, g in fx.groupby("dt_fixed"):
+        d = df.set_index("subject").join(g.set_index("subject")["m_MR"].rename("m_fixed"))
+        d = d.reset_index()
+        grp = perm_diff(d["m_fixed"].to_numpy(), d["responsive"].to_numpy(), +1, rng)
+        adj = cov_adjusted(d, "m_fixed", rng)
+        rows.append(dict(threshold=THRESHOLD, dt_fixed=int(dt), n_resp=grp["n_resp"],
+                         n_unresp=grp["n_unresp"], diff=grp["diff"], p_two=grp["p_two"],
+                         p_dir=grp["p_dir"], adj_coef=adj["coef"], adj_p_perm=adj["p_perm"]))
+    return pd.DataFrame(rows)
+
+
 def main() -> None:
     di = os.path.join(DATA_DIR, "datainfo.mat")
     if not os.path.exists(di):
@@ -167,7 +204,27 @@ def main() -> None:
     print("  Reminder: n=6 unresponsive. Report as exploratory regardless of sign.")
 
     out = os.path.join(DATA_DIR, f"step8_behavioral_split_le{THRESHOLD}.csv")
+    df.to_csv(out, index=False)
     print(f"\nPer-subject table -> {out}")
+
+    # --- Amendment A8: m side of the dissociation under fixed binning -------
+    fx = fixed_dt_m(DATA_DIR, df)
+    if fx is None:
+        print(f"\n[A8] {FIXED_DT_FILE} not found: the m_MR results above use the "
+              "event-rate-confounded data-driven binning and must be reported with that caveat.")
+        return
+    print("\n" + "=" * 64)
+    print("A8: m_MR responsive-vs-unresponsive under FIXED binning (dt = 5..11 samples)")
+    print("=" * 64)
+    print(fx[["dt_fixed", "n_resp", "n_unresp", "diff", "p_dir", "adj_coef",
+              "adj_p_perm"]].round(4).to_string(index=False))
+    n_grp = int((fx.p_dir < 0.05).sum())
+    n_adj = int((fx.adj_p_perm < 0.05).sum())
+    print(f"\n  group difference p_dir<.05 at {n_grp}/{len(fx)} dt; "
+          f"survives concentration at {n_adj}/{len(fx)} dt")
+    out_fx = os.path.join(DATA_DIR, f"step8_fixed_dt_le{THRESHOLD}.csv")
+    fx.to_csv(out_fx, index=False)
+    print(f"  -> {out_fx}")
 
 
 if __name__ == "__main__":

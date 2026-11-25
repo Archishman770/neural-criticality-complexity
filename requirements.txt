@@ -7,6 +7,7 @@
 
 h5py==3.16.0
 matplotlib==3.11.0
+mne==1.12.1                # read_epochs_eeglab in step2/2b/3/3b/17/19
 mrestimator==0.2.0
 numpy==2.4.6
 pandas==3.0.3
@@ -14,6 +15,9 @@ pymatreader==1.2.3
 scipy==1.18.0
 statsmodels==0.14.6
 
-# NOT required (implemented inline in the scripts, or unused):
-#   - antropy : LZ76 is implemented directly in step2_batch_extract.py
-#   - mne     : EEG is read via pymatreader + the EEGLAB .set format, not MNE
+# Tests only:  python3 -m pytest tests/
+pytest==9.1.1
+
+# Optional:
+#   - antropy==0.2.2 : step2 uses it for LZ when installed, else the inline LZ76;
+#     tests/test_complexity.py checks the two are identical (rel 1e-12).

@@ -93,16 +93,48 @@ one working directory.
     that the censoring is a filter artifact while the magnitude bias is a data property. Both
     are self-contained (the generator is inlined).
 
+### Binning-confound control (amendment A8)
+
+- `step19_fixed_dt_branching.py <data_dir>` — re-estimates the EEG branching ratio at fixed
+  bin widths dt = 5–11 samples (step3b sets dt from the event rate, which also drives the
+  complexity measures). Writes `branching_summary_fixeddt.csv`.
+- `step20_fixed_dt_test.py <data_dir>` — refits the §3.1–3.2 models at each fixed dt, with the
+  variance control and 10,000 permutations per dt. Writes `fixed_dt_test_results.csv`.
+  Rationale and results: `docs_binning_confound_memo.md`; amendment log: `docs/decision_log.md`.
+- `step8_behavioral_split.py <data_dir> [threshold]` — threshold defaults to 20; pass 21 for the
+  sensitivity split. Also re-tests the m side of §3.6 with fixed-dt m
+  (`step8_fixed_dt_le{20,21}.csv`).
+
+### Culture-arm validation (amendment A9, synthetic only; no culture data yet)
+
+- `step21_transient_observed_validation.py` — transient-onset estimator with onsets detected
+  from the full population (as in step10/11), from observed activity only, and split-half.
+  Shows the step10/11 validation depended on knowing the onsets.
+- `step22_avalanche_observed_validation.py` — Shew's kappa and DCC under observed-only
+  conditions across observation fractions and bin widths.
+- `src/criticality/avalanches.py` — avalanche extraction, discrete power-law MLE, kappa, DCC.
+- Draft pre-registration (not locked): `docs/A9_culture_arm_preregistration.md`.
+
 ### Falsification scoring and figures
 
 20. `step12_falsification_passfail.py <data_dir>` — scores the pre-registered falsification
-    criteria as explicit pass/fail.
+    criteria as explicit pass/fail, under both the pre-registered (data-driven dt) and the
+    binning-controlled (fixed dt, A8) specifications. Requires step20's output.
 21. `make_figures.py` — regenerates all four figures. Reads `branching_summary_v2.csv`,
     `complexity_summary.csv`, the synthetic-validation CSVs, and (for Figure 2 panel B)
     `allen_m_scan_stationary.csv` and `allen_kmax_ceiling_diagnostic.csv`. **Set the `PROJ` and
     `OUT` paths at the top to `.` (or your data folder) before running.** Figure 2 prints its
     data source; "computed from allen_*.csv" confirms it read the real data rather than the
     fallback values.
+
+## Tests
+
+    python3 -m pytest tests/
+
+`tests/test_complexity.py` pins LZ and MPR_C to the synthetic reference values
+(sine/noise/chaos). `tests/test_avalanches.py` checks the avalanche measures against a critical
+Galton–Watson process. Note: the transient-onset estimator (step10/11) is not covered and has a
+known failure under observed-only onset detection (step21).
 
 ## Superseded scripts
 
